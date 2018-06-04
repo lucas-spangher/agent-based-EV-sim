@@ -11,3 +11,5 @@ simulateFleet.R is the file in which the simulateFleet() function defined. You s
 graphing.R contains many different graphs composed using ggplot(). All the graphs in the paper are here, plus others. 
 
 appendix.R contains some ancillary functions. 
+
+The outputDFs represent output data that is used in the paper. Each "outputDF" is followed by two varying parameters: XX% max sales proportion and Ya years after 2016 to maximum sales penetration. Therefore, for example, outputDF.100.20a.csv is a scenario in which 100% of all new cars sold are EVs after 20 years.
