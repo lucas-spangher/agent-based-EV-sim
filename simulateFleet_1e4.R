@@ -8,7 +8,6 @@ require(fGarch)
 require(reshape)
 require(dplyr)
 load("sim_gb.rdata")
-
 # predDFs <- predDFs[-(1:14),]
 # predPropsS <- predPropsS[-(1:14),]
 # 
@@ -24,50 +23,45 @@ sim_all <- NULL
 co2_long_all <- NULL
 co2_list <- NULL
 sim_list <- NULL
-it <- 200
-for(r in 1:100 + it) {
+it <- 1e3
+for(r in 1:1e4) {
   print(r)
-  sim_all <- NULL
+  set.seed(r+it)
+  sim_list[[r]] <- simulateFleet(ev_ms='base',fleet_scen = 'f0',elec_scen = 'bau',scrappingRate = 1);co2_long_all[[r]] <- toLong(sim_list[[r]])
   
-  
-  for(ev in c('ice','ev')[1]) {
-    for(elec in c('bau','decarb')) {
-      for(fleet in c('f0','f50','f100')) {
-        for(hirep in c(F,T)) {
-          if(ev=='ev') {
-            for(scen in c('base','high_fast','slow','high_slow')) {
-              set.seed(r)
-              nm <- paste(ev,elec,fleet,scen,hirep,sep='_');print(nm)
-              sim_all[[nm]] <- simulateFleet(ev_ms=scen,fleet_scen = fleet,elec_scen = elec,scrappingRate = 1+1*hirep);co2_long_all[[nm]] <- toLong(sim_all[[nm]])
-            }
-          } else {
-            set.seed(r)
-            nm <- paste(ev,elec,fleet,hirep,sep='_');print(nm)
-            sim_all[[nm]] <- simulateFleet(replacedByEV = NULL,enterSwitch=F,fleet_scen = fleet,elec_scen = elec,scrappingRate = 1+1*hirep);co2_long_all[[nm]] <- toLong(sim_all[[nm]])
-          }
-        }
-      }
-    }
-  }
-  
-  set.seed(r);sim_all[['phev']] <- simulateFleet(fleet_scen='f0',phev=0.35);co2_long_all[['phev']] <- toLong(sim_all[['phev']]) # 35% PHEVs
-  set.seed(r);sim_all[['base_fleet50_ev']] <- simulateFleet(fleet_scen='f50',fleet_ev=2010);co2_long_all[['base_fleet50_ev']] <- toLong(sim_all[['base_fleet50_ev']]) #
-  set.seed(r);sim_all[['base_fleet100_ev']] <- simulateFleet(fleet_scen='f100',fleet_ev=2010);co2_long_all[['base_fleet100_ev']] <- toLong(sim_all[['base_fleet100_ev']]) #
-  set.seed(r);sim_all[['car']] <- simulateFleet(replacedByEV = vTypes[1:2]);co2_long_all[['car']] <- toLong(sim_all[['car']]) # Only Car, Car SUV
-  set.seed(r);sim_all[['lt']] <- simulateFleet(replacedByEV = vTypes[-(1:2)]);co2_long_all[['lt']] <- toLong(sim_all[['lt']]) # No Cars or Car SUV
-  
-  sim_list[[r - it]] <- sim_all
-  saveRDS(sim_list,paste0('sim_list 0319_',it,'b.RDS'))
+  saveRDS(sim_list,paste0('sim_list_1e4.RDS'))
 }
-sim_ev <- readRDS(paste0('sim_list 0319_b.RDS'))
-for(i in 1:length(sim_ev)) {
-  sim_ev[[i]][grepl('ice',names(sim_ev[[i]]))] <- sim_list[[i]][grepl('ice',names(sim_ev[[i]]))]
-}
-sim_list <- sim_ev
-# sim_list <- readRDS('sim_list.RDS')
-sim_comp1 <- lapply(sim_list,function(l)data.frame(do.call('rbind',l),scen=rep(names(l),each=nrow(l[[1]]))))
-sim_comp <- data.frame(do.call('rbind',sim_comp1),run=rep(1:length(sim_comp1),each=nrow(sim_comp1[[1]])))
+
+sim_list <- readRDS('sim_list_1e4.RDS')
+sim_comp <- data.frame(do.call('rbind',sim_list),run=rep(1:length(sim_comp1),each=nrow(sim_list[[1]])))
 sim_comp$year <- sim_comp$scaleYear + 2010
+
+
+
+sim_comp_test <- subset(sim_comp,year==2050)
+
+comp_test <- data.frame(mean=subset(sim_comp_test,run==1)$co2emissions,
+                        max=subset(sim_comp_test,run==1)$co2emissions,
+                        min=subset(sim_comp_test,run==1)$co2emissions)
+for(i in 2:1e4) {
+  
+  comp_test <- rbind(comp_test,c(mean(subset(sim_comp_test,run %in% 1:i)$co2emissions),
+                                 max(subset(sim_comp_test,run %in% 1:i)$co2emissions),
+                                 min(subset(sim_comp_test,run %in% 1:i)$co2emissions)))
+}
+comp_test$run <- 1:1e4
+comp_test$mean[1:3] <- NA
+ggplot(comp_test) +
+  geom_line(aes(x=run,y=mean/1e9),lwd=1.5) +
+  geom_line(aes(x=run,y=min/1e9),lwd=1,lty='dashed') +
+  geom_line(aes(x=run,y=max/1e9),lwd=1,lty='dashed') +
+  labs(x='Trial',y='CO2 emissions (gigatons)') +
+  theme_bw() +
+  geom_vline(xintercept = 300,color='red') +
+  geom_text(aes(x=1000,y=1.03,label='300 runs'),color='red')
+ggsave('trial_variation.jpeg')  
+
+
 form <- as.formula(paste0('cbind(',paste(names(sim_comp)[2:(ncol(sim_comp)-3)],collapse=','),')~scen+year'))
 sim_comp[is.na(sim_comp)] <- 0
 sim_means <- aggregate(form,sim_comp,mean,na.rm=T)
@@ -76,32 +70,28 @@ sim_min <- aggregate(form,sim_comp,min,na.rm=T)
 sim_co2 <- data.frame(year=sim_means$year,scen=sim_means$scen,
                       co2_mean=sim_means$co2emissions,co2_max=sim_max$co2emissions,co2_min=sim_min$co2emissions)
 
-saveRDS(sim_co2,'sim_co2_3.RDS')
-saveRDS(sim_comp,'sim_comp_3.RDS')
-
 # Comparison plots----------
 library(RColorBrewer)
 
 # EV scenario
-sim_co2$elec <- 'Current electricity trends'
-sim_co2$elec[grepl('decarb',sim_co2$scen)] <- 'Rapid decarbonization'
-ggplot(subset(sim_co2,grepl('f0.*FALSE|phev',scen))) +
+ggplot(subset(sim_co2,grepl('f0.*FALSE',scen))) +
   geom_line(aes(x=year,y=co2_mean/1e9,color=gsub('.*0_|_FA.*','',scen),group=scen),lwd=1) +
-  facet_wrap(~elec) +
-  # geom_point(data=subset(sim_co2,grepl('f0.*FALSE',scen) & year%%10==0),
-             # aes(x=year,y=co2_mean/1e9,color=gsub('.*0_|_FA.*','',scen)),size=2) +
+  facet_wrap(~grepl('decarb',scen)) +
+  geom_point(data=subset(sim_co2,grepl('f0.*FALSE',scen) & year%%10==0),
+             aes(x=year,y=co2_mean/1e9,color=gsub('.*0_|_FA.*','',scen)),size=2) +
   geom_ribbon(aes(x=year,ymax=co2_max/1e9,ymin=co2_min/1e9,fill=gsub('.*0_|_FA.*','',scen),group=scen),alpha=0.2) +
   scale_fill_manual(name='EV scenario',
-                    #labels=c('Base case','No EVs','100% penetration - fast','100% penetration - slow','Base penetration - slow','PHEV'),
-                    values=brewer.pal(6,'Dark2')[c(5,2,3:4,1,6)]) +
+                    labels=c('Base case','No EVs','100% penetration - fast','100% penetration - slow','Base penetration - slow'),
+                    values=brewer.pal(5,'Set1')[c(2,1,3:5)]) +
+  scale_shape_manual(name='Power grid scenario',values=c(19,8),labels=c('Base forecast','Rapid decarbonization')) +
+  scale_linetype_discrete(name='Power grid scenario',labels=c('Base forecast','Rapid decarbonization')) +
   scale_color_manual(name='EV scenario',
-                     labels=c('Base case','No EVs','100% penetration - fast','100% penetration - slow','Base penetration - slow','PHEV'),
-                     values=brewer.pal(6,'Dark2')[c(5,2,3:4,1,6)]) +
+                     labels=c('Base case','No EVs','100% penetration - fast','100% penetration - slow','Base penetration - slow'),
+                     values=brewer.pal(5,'Set1')[c(2,1,3:5)]) +
   ylim(c(0,2)) +
   theme_bw() +
   labs(x='Year',y='CO2 emissions (billion tons equivalent)')
-ggsave('evscen_comp 0319.jpg')
-
+ggsave('evscen_comp.jpg')
 
 # Fleet scenarios
 ggplot(subset(sim_co2,grepl('bau.*base_FALSE|bau.*0_FALSE|fleet.*ev',scen))) +
